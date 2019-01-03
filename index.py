@@ -10,39 +10,43 @@ from test_dash.custom_html_components import menu
 from test_dash import ventLB,tensionsLB
 
 
-app.layout = html.Div([
-    dcc.Location(id='url', refresh=False),
-    html.Div(id='page-content')
+app.layout = html.Div([html.Div(
+            html.Span("Maintenance Col du Lac Blanc", className='app-title'),
+    className="row header"),
+    #tabs (exemple suivi salesforce crm de la gallerie dash)
+    html.Div([
+        dcc.Tabs(
+            id='tabs',
+            style={"height":"20","verticalAlign":"middle"},
+            children=[
+                dcc.Tab(label="Vents",value="wind_tab"),
+                dcc.Tab(label="Tension",value="tension_tab")
+            ],
+            value='all_tabs'
+        )
+    ],
+        className = "row tabs_div"
+    ),
+    html.Div(id="tab_content", className="row", style={"margin": "2% 3%"}),
+    html.Link(href="https://use.fontawesome.com/releases/v5.2.0/css/all.css",rel="stylesheet"),
+    html.Link(href="https://fonts.googleapis.com/css?family=Dosis", rel="stylesheet"),
+    html.Link(href="https://fonts.googleapis.com/css?family=Open+Sans", rel="stylesheet"),
+    html.Link(href="https://fonts.googleapis.com/css?family=Ubuntu", rel="stylesheet"),
 ])
 
 
-listlinks = [('Vents','/wind'),('Tensions','/voltage')]
 
 
-@app.callback(Output('page-content', 'children'),
-              [Input('url', 'pathname')])
-def display_page(pathname):
-    if pathname == '/wind':
-         return html.Div([
-             menu(listlinks),
-             ventLB.layout])
-    elif pathname == '/voltage':
-         return html.Div([
-             menu(listlinks),
-             tensionsLB.layout])
+@app.callback(Output('tab_content', 'children'),
+              [Input('tabs', 'value')])
+def render_content(tab):
+    if tab == "wind_tab":
+         return ventLB.layout
+    elif tab == "tension_tab":
+         return tensionsLB.layout
     else:
-        return '404'
+        return ventLB.layout
 
-
-
-# @app.callback(Output('url', 'pathname'),
-              # [Input('url', 'pathname')])
-# def redirect(pathname):
-    # # print(dcc.Location)
-    # # if pathname == '/':
-        # # return '/wind'
-    # # else:
-    # return pathname
 
 
 if __name__ == '__main__':
