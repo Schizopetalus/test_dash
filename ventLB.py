@@ -11,12 +11,13 @@ from textwrap import dedent as d
 
 import plotly.graph_objs as go
 
-from dash.dependencies import Input, Output
+from dash.dependencies import Input, Output,State
 import json
 
 from test_dash.main import app,dflb,dfmuz
 from test_dash.custom_html_components import menu
 from test_dash.main import app
+import numpy as np
 
 
 # TODO: abandonner plots vent LB + muz synchros + roses des vents trop dur et pas intéret fou
@@ -52,6 +53,9 @@ lsups = [(center + 22.5)%360 for  center in centers]
 linfs = [(center - 22.5)%360 for  center in centers]
 names = ['North', 'N-E', 'East', 'S-E', 'South', 'S-W', 'West', 'N-W']
 
+
+
+
 def get_count(df,index):
     if index == 0:
         return len(df[(df.winddir < lsups[index]) | (df.winddir >= linfs[index])])
@@ -82,15 +86,13 @@ def windrose(df):
 
 gr_lb = dcc.Graph(id='wind-lb',
                   figure=wind_figure(dflb),
-                  style={"width": "98%","height":"98%"})
+                  style={"width": "98%","height":"98%"},config={"displayModeBar":False})
 
 gr_muz = dcc.Graph(id='wind-muz',
                    figure=wind_figure(dfmuz),
                    style={"width": "98%",'height':'98%'})
 
-
-
-roselb = dcc.Graph(id='windrose',
+roselb = dcc.Graph(id='windroselb',
                    figure = windrose(dflb),
                    style={"width": "98%","height":"98%"})
 
@@ -104,34 +106,43 @@ rosemuz = dcc.Graph(id='windrosemuz',
 
 
 layout = [
+    html.Button("Fire an event",id="button-event"),
     Div(
-    children=[
-        Div(children=[
-            html.P("Vent Lac Blanc",
-                    style={
-                        "color": "#2a3f5f",
-                        "fontSize": "20px",
-                        "textAlign": "center",
-                        "marginBottom": "0",
-                    }),
-            gr_lb
+        [html.H2("Lac Blanc: force du vent et rose des vents")],
+        className = "row"
+    ),
+    Div(
+        children=[
+            Div(children=[
+                # html.P("Vent Lac Blanc",
+                       # style={
+                           # "color": "#2a3f5f",
+                           # "fontSize": "20px",
+                           # "textAlign": "center",
+                           # "marginBottom": "0",
+                       # }),
+                gr_lb
+            ],
+                className="eight columns chart_div",
+            ),
+            Div(children=[roselb],className="four columns chart_div",
+                )
         ],
-            className="eight columns chart_div",
-            ),
-        Div(children=[roselb],className="four columns chart_div",
-            )
-    ],
-    className ="row",
-),
+        className ="row",
+    ),
     Div(
-    children=[
-        Div(children=[gr_muz],className="eight columns chart_div",
-            ),
-        Div(children=[rosemuz],className="four columns chart_div",
-            )
-    ],
-    className ="row",
-),
+        [html.H2("Muzelle : force du vent et rose des vents")],
+        className = "row"
+    ),
+    Div(
+        children=[
+            Div(children=[gr_muz],className="eight columns chart_div",
+                ),
+            Div(children=[rosemuz],className="four columns chart_div",
+                )
+        ],
+        className ="row",
+    ),
 ]
 
 
@@ -149,38 +160,87 @@ layout = [
 
 
 
-def filter_df(df,datmin,datmax,windmin,windmax):
-    Cdate = (df.index >= datmin) & (df.index <= datmax)
+def filter_df(df,
+              datmin=None,
+              datmax=None,
+              windmin=-np.Infinity,
+              windmax=np.Infinity):
+    Cdate = np.ones(len(df.index),dtype=bool)
+    if datmin:
+        Cdate = Cdate & (df.index >= datmin )
+    if datmax:
+        Cdate = Cdate & (df.index <= datmax )
     Cspeed = (df.windspeed >= windmin) & (df.windspeed <= windmax)
     return df[Cdate & Cspeed]
 
 
+# remarque: avoir comme inputs à la fois zoom et selection c'est pas dans la
+# philosophie de dash ce serait faire dépendre l'état de l'historique des
+# actions - (ie : la rose des vents serait mise à jour selon l'action qui a été
+# déclenchée en dernier zoom ou selection)
+# donc il faut 2 roses par exemple, ou se résoudre à n'avoir un CB que sur le
+# zoom
+
+# attention ne jamais retourner None dans un callback!!!
+# (la figure reste mais on perd toute référence vers elle!!!)
+
 @app.callback(
-    Output('windrose', 'figure'),
-    [Input('wind-lb', 'selectedData')])
-def display_selected_data_lb(selectedData):
-    if selectedData:
-        datmin = min(selectedData['range']['x'])
-        datmax = max(selectedData['range']['x'])
-        windmin = min(selectedData['range']['y'])
-        windmax= max(selectedData['range']['y'])
-        data = filter_df(dflb,datmin,datmax,windmin,windmax)
-    else:
-        data = dflb
-    return windrose(data)
-
-# @app.callback(
-    # Output('windrosemuz', 'figure'),
-    # [Input('all-winds', 'selectedData')])
-# def display_selected_data_muz(selectedData):
-    # datmin,datmax = selectedData['range']['x']
-    # windmin,windmax=selectedData['range']['y']
-    # data = filter_df(dfmuz,datmin,datmax,windmin,windmax)
-    # rosewind = getWindFigure(data)
-    # return rosewind
+    Output('windroselb', 'figure'),
+    [Input('wind-lb','relayoutData')])
+def display_selected_data_lb(relayoutData):
+    if not relayoutData:
+        return windrose(dflb)
+    axis_match ={'yaxis.range[1]': 'windmax',
+                 'xaxis.range[0]': 'datmin',
+                 'xaxis.range[1]': 'datmax',
+                 'yaxis.range[0]': 'windmin'}
+    limits = {axis_name: relayoutData[axis_lim]
+              for axis_lim,axis_name in axis_match.items()
+              if axis_lim in relayoutData}
+    return windrose(filter_df(dflb,**limits))
 
 
-if __name__ == '__main__':
-    app.run_server(debug = True)
+
+@app.callback(
+    Output('windrosemuz', 'figure'),
+    [Input('wind-muz','relayoutData'),Input('wind-lb','relayoutData')])
+def display_selected_data_muz(relayoutData,relayoutLB):
+    if not relayoutData:
+        return windrose(dflb)
+    axis_match ={'yaxis.range[1]': 'windmax',
+                 'xaxis.range[0]': 'datmin',
+                 'xaxis.range[1]': 'datmax',
+                 'yaxis.range[0]': 'windmin'}
+    limits = {axis_name: relayoutData[axis_lim]
+              for axis_lim,axis_name in axis_match.items()
+              if axis_lim in relayoutData}
+    return windrose(filter_df(dflb,**limits))
+
+
+@app.callback(
+    Output('wind-muz', 'figure'),
+    [Input('wind-lb','relayoutData')],
+    [State('wind-muz','relayoutData')])
+def resize_muzelle(relayoutData,figure):
+    new_figure = wind_figure(dfmuz)
+    if not relayoutData:
+        return new_figure
+    if 'xaxis.range[0]' in relayoutData:
+        new_figure['layout']['xaxis']['range'] = [
+            relayoutData['xaxis.range[0]'],
+            relayoutData['xaxis.range[1]']
+        ]
+    if 'yaxis.range[0]' in relayoutData:
+        new_figure['layout']['yaxis']['range'] = [
+            relayoutData['yaxis.range[0]'],
+            relayoutData['yaxis.range[1]']
+        ]
+    return new_figure
+
+
+
+
+
+
 
 
