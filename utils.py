@@ -53,6 +53,8 @@ def generate_layout(*args):
 class TileDiv(Div):
 
     def __init__(self, *args, nrows=12, **kwargs):
+        # note : syntaxe pour les arguments valable pour python3 mais pas pour
+        # python 2
         super().__init__(*args,**kwargs)
         self.nrows = nrows
 
