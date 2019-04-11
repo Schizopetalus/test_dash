@@ -11,14 +11,21 @@ import plotly.graph_objs as go
 from dash.dependencies import Input, Output,State
 from dash.exceptions import PreventUpdate
 
-from data_clb.data import read_observations
+# from data_clb.data import read_observations
 from utils import TileDiv,generate_layout
 import json
 
-df = read_observations(['LB'],2018,get_ftp=False)
+# Données réelles
+# df = read_observations(['LB'],2018,get_ftp=False)
 # dflb = df[df.index > '2019-02-01'].iloc[:50]
-dflb = df[df.index > '2019-02-01']
-dflb = dflb.reset_index()
+# dflb = df[df.index > '2019-02-01']
+# dflb = dflb.reset_index()
+
+# Données prises dans le fichier csv qui dumpe le dataframe précédent
+dflb = pd.read_csv('dataframe_lb.csv')
+dflb.date = pd.to_datetime(dflb.date)
+del dflb['Unnamed: 0']
+
 subset_columns = ['date','htnavg','htnmin','htnmax','htnstd','htn2avg','htn2min','htn2max','htn2std']
 htn_cor_columns = ['date','htn','htn2']
 dflb = dflb[subset_columns]
@@ -28,16 +35,17 @@ dfcor.date = dflb.date
 ################## Les plots #######################
 
 schtn = go.Scatter(
-    x=dflb.index,y=dflb.htnavg,
+    x=dflb.date,y=dflb.htnavg,
     name = "HTN brut moyen LB",line = dict(color='black',width=2))
-schtnmax = go.Scatter(x=dflb.index,y=dflb.htnmax,line = dict(color='lightgrey',width=2),name='HTN max')
-schtnmin = go.Scatter(x=dflb.index,y=dflb.htnmin,line = dict(color='lightgrey',width=2),name='HTN min')
+schtnmax = go.Scatter(x=dflb.date,y=dflb.htnmax,line = dict(color='lightgrey',width=2),name='HTN max')
+schtnmin = go.Scatter(x=dflb.date,y=dflb.htnmin,line = dict(color='lightgrey',width=2),name='HTN min')
 
 fightn = go.Figure([schtn,schtnmin,schtnmax])
 
 gr_htn = dcc.Graph(id='plotbrut',
                    figure = fightn)
 
+gr_htn_corrige = dcc.Graph(id='plotcorrige')
 
 
 app = dash.Dash(__name__)
@@ -113,6 +121,7 @@ app.layout = html.Div(
         TileDiv(html.Button('Copier HTN Brut',id='copy_brut_to_corrected'),nrows=3),
         TileDiv(html.Div(),nrows=9),
         TileDiv(gr_htn),
+        TileDiv(gr_htn_corrige),
         TileDiv([table_brut],nrows=8),
         TileDiv([table_corrige],nrows=4),
         TileDiv(html.Div(id='output'))
@@ -129,35 +138,48 @@ def read_store(stored_data):
     for column in data_as_df.columns:
         data_as_df[column] = conv_dict.get(
             column,pd.to_numeric)(data_as_df[column])
-    return data_as_df
-
-# @app.callback(Output('output', 'children'),
-              # [Input('data_cor', 'modified_timestamp')],
-              # [State('data_cor', 'data')])
-# def print_data(ts, data):
-    # if ts is None:
-        # raise PreventUpdate
-    # data = data or {}
-    # datapds = pd.DataFrame.from_dict(data)
-    # print(datapds.dtypes)
-    # datapds.set_index('date',inplace=True)
-    # return json.dumps(datapds.to_dict())
+    return data_as_df.set_index('date').sort_index().reset_index()
 
 
+
+############## Affichage du contenu des données corrigées côté client ##########
+# table et graphique
+# événement : mise à jour du store contenant les données corrigées
+@app.callback([
+    Output('table_cor', 'data'),
+    Output('plotcorrige','figure')],
+    [Input('data_cor', 'data')])
+def update_rows(data_cor):
+    data_cor_pds = read_store(data_cor)
+    schtncor = go.Scatter(
+        x=data_cor_pds.date,y=data_cor_pds.htn,
+        name = "HTN corrigé LB",line = dict(color='black',width=2))
+    fightncor = go.Figure([schtncor])
+    return data_cor_pds.to_dict("rows"),fightncor
+
+
+############## Initialisation des données corrigées stockées côté client ######
+# à partir de htnavg brut
+# événement : click sur bouton
+# FIXME : après tout, avoir plusieurs boutons pour effectuer des actions
+# successives n'est peut-être pas judicieux
+# on pourrait (si utile ...) avoir une datatable qui mémorise tous les filtres
+# qu'on veut appliquer aux données par exemple?
+# ou simplement mémoriser une liste des traitements appliqués?
+# en attendant, une seul bouton qui charge les données corrigées et effectue le
+# filtrage
 @app.callback(Output('data_cor', 'data'),
               [Input('copy_brut_to_corrected', 'n_clicks')],
               [State('data_cor','data')])
-def raw2corrected(n_clicks,data_cor):
-    with open('tests/client_side_data/data_cor.json','w') as f:
-        json.dump(data_cor,f)
-    print('Done')
-    return data_cor
-    # data_cor_pds = pd.DataFrame.from_dict(data_cor)
-    # print(data_cor_pds.head())
-    # data_cor_pds.set_index('date',inplace=True)
-    # data_cor_pds.htn = dflb.htnavg
-    # return data_cor_pds.reset_index().to_dict()
-
+def update_local_data(n_clicks,data_cor):
+    if n_clicks is None:
+        raise PreventUpdate
+    data_cor_pds = read_store(data_cor)
+    data_cor_pds.set_index('date',inplace=True)
+    a = data_cor_pds.join(dflb.set_index('date'))
+    o = a[(a.htnstd <2) & (a.htnavg>=0) & (a.htnavg < 600)]
+    data_cor_pds.htn = o.htnavg
+    return data_cor_pds.reset_index().to_dict()
 
 
 if __name__ == '__main__':
